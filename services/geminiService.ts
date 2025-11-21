@@ -1,12 +1,26 @@
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let aiClient: GoogleGenAI | null = null;
+
+const getAIClient = () => {
+  if (!aiClient) {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      console.error("API_KEY is missing");
+      throw new Error("API Key is not defined");
+    }
+    aiClient = new GoogleGenAI({ apiKey });
+  }
+  return aiClient;
+};
 
 /**
  * Generates a game icon or box art using Gemini Image Generation model.
  */
 export const generateGameImage = async (gameName: string): Promise<string | null> => {
   try {
+    const ai = getAIClient();
+    
     // Using the flash image model as requested for efficiency and style
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
@@ -34,6 +48,7 @@ export const generateGameImage = async (gameName: string): Promise<string | null
     return null;
   } catch (error) {
     console.error("Error generating game image:", error);
-    throw error;
+    // Return null instead of throwing to prevent breaking the UI for one failed image
+    return null;
   }
 };
