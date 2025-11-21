@@ -5,9 +5,16 @@ let aiClient: GoogleGenAI | null = null;
 const getAIClient = () => {
   if (!aiClient) {
     const apiKey = process.env.API_KEY;
+    
+    // Debugging: Log key status (do not log the full key)
+    if (apiKey) {
+      console.log(`[Gemini Service] API Key found: ${apiKey.substring(0, 4)}...`);
+    } else {
+      console.error("[Gemini Service] API_KEY is missing in process.env");
+    }
+
     if (!apiKey) {
-      console.error("API_KEY is missing");
-      throw new Error("API Key is not defined");
+      throw new Error("API Key is not defined. Please check your environment variables.");
     }
     aiClient = new GoogleGenAI({ apiKey });
   }
@@ -21,6 +28,8 @@ export const generateGameImage = async (gameName: string): Promise<string | null
   try {
     const ai = getAIClient();
     
+    console.log(`[Gemini Service] Generating image for: ${gameName}`);
+
     // Using the flash image model as requested for efficiency and style
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash-image',
@@ -40,11 +49,13 @@ export const generateGameImage = async (gameName: string): Promise<string | null
     if (response.candidates && response.candidates[0].content.parts) {
       for (const part of response.candidates[0].content.parts) {
         if (part.inlineData && part.inlineData.data) {
+          console.log(`[Gemini Service] Image generated successfully for ${gameName}`);
           return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
         }
       }
     }
     
+    console.warn(`[Gemini Service] No image data found in response for ${gameName}`);
     return null;
   } catch (error) {
     console.error("Error generating game image:", error);
