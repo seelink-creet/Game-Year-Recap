@@ -1366,6 +1366,29 @@ const PC_GAMES_DECADES = [
   "Yakuza: Like a Dragon"
 ];
 
+const BATTLENET_GAMES = [
+  "炉石传说 (Hearthstone)",
+  "魔兽世界 (World of Warcraft)",
+  "守望先锋 2 (Overwatch 2)",
+  "暗黑破坏神 IV (Diablo IV)",
+  "暗黑破坏神 III (Diablo III)",
+  "暗黑破坏神 II：狱火重生 (Diablo II: Resurrected)",
+  "暗黑破坏神：不朽 (Diablo Immortal)",
+  "星际争霸 II (StarCraft II)",
+  "星际争霸：重制版 (StarCraft: Remastered)",
+  "风暴英雄 (Heroes of the Storm)",
+  "魔兽争霸 III：重制版 (Warcraft III: Reforged)",
+  "使命召唤：黑色行动 6 (Call of Duty: Black Ops 6)",
+  "使命召唤：现代战争 III (Call of Duty: Modern Warfare III)",
+  "使命召唤：战区 (Call of Duty: Warzone)",
+  "Hearthstone",
+  "World of Warcraft",
+  "Overwatch 2",
+  "Diablo IV",
+  "StarCraft II",
+  "Heroes of the Storm"
+];
+
 const POPULAR_TITLES = [
   // Existing Manual List (Keep as is or merge duplicates)
   "艾尔登法环 (Elden Ring)",
@@ -1484,4 +1507,4 @@ const POPULAR_TITLES = [
   "和平精英 (Game for Peace)"
 ];
 
-export const POPULAR_GAMES = unique([...SWITCH_GAMES, ...PS5_CATALOG, ...PC_GAMES_DECADES, ...POPULAR_TITLES]).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+export const POPULAR_GAMES = unique([...SWITCH_GAMES, ...PS5_CATALOG, ...PC_GAMES_DECADES, ...BATTLENET_GAMES, ...POPULAR_TITLES]).sort((a, b) => a.localeCompare(b, 'zh-CN'));

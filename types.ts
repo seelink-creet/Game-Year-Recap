@@ -5,6 +5,7 @@ export enum PlatformType {
   SWITCH = 'Switch 1/2',
   XBOX = 'Xbox',
   STEAM = 'Steam',
+  BATTLENET = 'Battle.net',
   PC = 'PC'
 }
 

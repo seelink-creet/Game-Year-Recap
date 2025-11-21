@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { motion, useMotionValue, useSpring } from 'framer-motion';
 import { PlatformType } from '../types';
-import { Gamepad2, Gamepad, Joystick, MousePointer2, Keyboard, Laptop } from 'lucide-react';
+import { Gamepad2, Gamepad, Joystick, MousePointer2, Keyboard, Laptop, Swords } from 'lucide-react';
 
 interface CustomCursorProps {
   platform?: PlatformType | null;
@@ -55,6 +55,7 @@ const CustomCursor: React.FC<CustomCursorProps> = ({ platform }) => {
       case PlatformType.SWITCH: return <Gamepad size={28} strokeWidth={1.5} />;
       case PlatformType.XBOX: return <Joystick size={28} strokeWidth={1.5} />;
       case PlatformType.STEAM: return <MousePointer2 size={28} strokeWidth={1.5} />;
+      case PlatformType.BATTLENET: return <Swords size={28} strokeWidth={1.5} />;
       case PlatformType.PC: return <Keyboard size={28} strokeWidth={1.5} />;
       default: return null;
     }

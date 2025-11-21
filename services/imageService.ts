@@ -46,6 +46,7 @@ export const searchGameImage = async (gameName: string, platform?: PlatformType 
             [PlatformType.SWITCH]: ['Nintendo - Nintendo Switch'],
             [PlatformType.XBOX]: ['Microsoft - Xbox Series X_S', 'Microsoft - Xbox One'],
             [PlatformType.STEAM]: ['Microsoft - Windows'],
+            [PlatformType.BATTLENET]: ['Microsoft - Windows'], // Battle.net games are PC games
             [PlatformType.PC]: ['Microsoft - Windows'],
         };
 

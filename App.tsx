@@ -5,7 +5,7 @@ import { searchGameImage } from './services/imageService';
 import Banner from './components/Banner';
 import GameList from './components/GameList';
 import CustomCursor from './components/CustomCursor';
-import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Laptop, Link as LinkIcon } from 'lucide-react';
+import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Laptop, Link as LinkIcon, AlertTriangle, Swords } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const PLATFORMS = [
@@ -13,6 +13,7 @@ const PLATFORMS = [
   { id: PlatformType.SWITCH, label: 'Switch 1/2', icon: <Disc className="w-5 h-5" />, color: 'from-red-500 to-red-700' },
   { id: PlatformType.XBOX, label: 'Xbox', icon: <Tv className="w-5 h-5" />, color: 'from-green-600 to-green-800' },
   { id: PlatformType.STEAM, label: 'Steam', icon: <Monitor className="w-5 h-5" />, color: 'from-slate-600 to-slate-800' },
+  { id: PlatformType.BATTLENET, label: 'Battle.net', icon: <Swords className="w-5 h-5" />, color: 'from-sky-600 to-cyan-800' },
   { id: PlatformType.PC, label: '其他平台', icon: <Laptop className="w-5 h-5" />, color: 'from-purple-600 to-indigo-800' },
 ];
 
@@ -34,20 +35,15 @@ function App() {
     return [];
   });
 
-  const [viewModes, setViewModes] = useState<Record<string, 'single' | 'dual'>>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('gyr_viewmodes');
-      return saved ? JSON.parse(saved) : {};
-    }
-    return {};
-  });
-
   const [showSettings, setShowSettings] = useState(false);
   const [cursorPlatform, setCursorPlatform] = useState<PlatformType | null>(null);
   
   // URL Input Dialog State
   const [urlDialog, setUrlDialog] = useState<{open: boolean, gameId: string | null}>({open: false, gameId: null});
   const [tempUrl, setTempUrl] = useState('');
+  
+  // Clear Data Confirmation Dialog State
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -70,10 +66,6 @@ function App() {
     }
   }, [games]);
 
-  useEffect(() => {
-    localStorage.setItem('gyr_viewmodes', JSON.stringify(viewModes));
-  }, [viewModes]);
-
   // Handlers
   const togglePlatform = (platform: PlatformType) => {
     setSelectedPlatforms(prev => 
@@ -81,13 +73,6 @@ function App() {
         ? prev.filter(p => p !== platform) 
         : [...prev, platform]
     );
-  };
-
-  const handleToggleViewMode = (platformId: string) => {
-    setViewModes(prev => ({
-      ...prev,
-      [platformId]: prev[platformId] === 'dual' ? 'single' : 'dual'
-    }));
   };
 
   const handleToggleCategory = (gameId: string) => {
@@ -211,8 +196,7 @@ function App() {
       version: 1,
       date: new Date().toISOString(),
       selectedPlatforms,
-      games,
-      viewModes
+      games
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -236,7 +220,6 @@ function App() {
         const json = JSON.parse(event.target?.result as string);
         if (json.selectedPlatforms) setSelectedPlatforms(json.selectedPlatforms);
         if (json.games) setGames(json.games);
-        if (json.viewModes) setViewModes(json.viewModes);
         alert("Data loaded successfully!");
       } catch (err) {
         console.error(err);
@@ -249,13 +232,14 @@ function App() {
   };
 
   const clearData = () => {
-    if (confirm("Are you sure you want to clear all data? This action cannot be undone.")) {
-      setGames([]);
-      setSelectedPlatforms([PlatformType.PS5, PlatformType.STEAM]);
-      setViewModes({});
-      localStorage.clear();
-      setShowSettings(false);
-    }
+    setShowSettings(false);
+    setShowClearConfirm(true);
+  };
+
+  const handleConfirmClear = () => {
+    setGames([]);
+    localStorage.removeItem('gyr_games'); 
+    setShowClearConfirm(false);
   };
 
   return (
@@ -281,12 +265,12 @@ function App() {
                 exit={{ opacity: 0, scale: 0.9, y: -10, x: 10 }}
                 className="absolute top-14 right-0 w-48 bg-slate-800 rounded-xl shadow-xl border border-slate-700 overflow-hidden flex flex-col"
               >
-                <button onClick={exportData} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left">
+                <button onClick={exportData} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left w-full">
                   <Download size={16} />
                   <span>Export Backup</span>
                 </button>
                 
-                <label className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left cursor-pointer">
+                <label className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left cursor-pointer w-full">
                   <Upload size={16} />
                   <span>Import Backup</span>
                   <input 
@@ -300,7 +284,10 @@ function App() {
                 
                 <div className="h-px bg-slate-700 my-1"></div>
                 
-                <button onClick={clearData} className="flex items-center gap-3 px-4 py-3 hover:bg-red-900/30 text-red-400 hover:text-red-300 transition-colors text-sm text-left">
+                <button 
+                  onClick={clearData} 
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-red-900/30 text-red-400 hover:text-red-300 transition-colors text-sm text-left w-full"
+                >
                   <Trash2 size={16} />
                   <span>Clear All Data</span>
                 </button>
@@ -344,6 +331,35 @@ function App() {
         )}
       </AnimatePresence>
 
+      {/* Clear Data Confirmation Modal */}
+      <AnimatePresence>
+        {showClearConfirm && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+                <motion.div 
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                    onClick={() => setShowClearConfirm(false)}
+                />
+                <motion.div 
+                    initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                    className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-2xl w-full max-w-md relative z-10"
+                >
+                    <h3 className="text-lg font-bold text-white mb-2 flex items-center gap-2 text-red-400">
+                        <AlertTriangle size={20} /> 警告 Warning
+                    </h3>
+                    <p className="text-slate-300 mb-6 text-sm leading-relaxed">
+                        确定要清空所有游戏列表吗？此操作无法撤销。<br/>
+                        Are you sure you want to clear all game data? This action cannot be undone.
+                    </p>
+                    <div className="flex justify-end gap-3">
+                        <button onClick={() => setShowClearConfirm(false)} className="px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm">取消 Cancel</button>
+                        <button onClick={handleConfirmClear} className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-red-900/20 text-sm">确认清空 Confirm Clear</button>
+                    </div>
+                </motion.div>
+            </div>
+        )}
+      </AnimatePresence>
+
       {/* Pass games to banner for dynamic quotes */}
       <Banner games={games} />
 
@@ -380,14 +396,13 @@ function App() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
           {PLATFORMS.filter(p => selectedPlatforms.includes(p.id)).map(platform => {
             const platformGames = games.filter(g => g.platform === platform.id);
-            const isDual = viewModes[platform.id] === 'dual';
             
             return (
               <motion.div 
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 key={platform.id} 
-                className={`flex flex-col gap-4 ${isDual ? 'col-span-1 md:col-span-2' : 'col-span-1'}`}
+                className="flex flex-col gap-4 col-span-1"
               >
                 <GameList 
                   platform={platform.id}
@@ -400,8 +415,6 @@ function App() {
                   onAddGame={(name, category) => handleAddGame(name, category, platform.id)}
                   onToggleCategory={handleToggleCategory}
                   onTogglePlatinum={handleTogglePlatinum}
-                  viewMode={isDual ? 'dual' : 'single'}
-                  onToggleViewMode={() => handleToggleViewMode(platform.id)}
                   onRequestUrlInput={handleRequestUrlInput}
                 />
               </motion.div>

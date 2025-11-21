@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Reorder, AnimatePresence, motion, useDragControls } from 'framer-motion';
 import { 
   GripVertical, 
@@ -9,8 +9,6 @@ import {
   RefreshCcw, 
   Link as LinkIcon, 
   Plus, 
-  LayoutGrid, 
-  List,
   Trophy
 } from 'lucide-react';
 import { Game, PlatformType } from '../types';
@@ -27,8 +25,6 @@ interface GameListProps {
   onAddGame: (name: string, category: 'single' | 'multi') => void;
   onToggleCategory: (id: string) => void;
   onTogglePlatinum: (id: string) => void;
-  viewMode: 'single' | 'dual';
-  onToggleViewMode: () => void;
   onRequestUrlInput: (id: string) => void;
 }
 
@@ -53,27 +49,129 @@ const DiamondParticle = ({ delay, x }: { delay: number; x: string }) => (
   />
 );
 
+// Rank Crown Component
+const RankCrown = ({ rank, category }: { rank: number; category: 'single' | 'multi' }) => {
+  if (rank > 3) return null;
+
+  // Crown Colors
+  const styles = {
+    1: { 
+      fill: "url(#gradGold)", 
+      stroke: "#b45309", 
+      shadow: "drop-shadow-[0_2px_4px_rgba(234,179,8,0.6)]" 
+    },
+    2: { 
+      fill: "url(#gradSilver)", 
+      stroke: "#475569", 
+      shadow: "drop-shadow-[0_2px_4px_rgba(148,163,184,0.6)]" 
+    },
+    3: { 
+      fill: "url(#gradBronze)", 
+      stroke: "#7c2d12", 
+      shadow: "drop-shadow-[0_2px_4px_rgba(249,115,22,0.6)]" 
+    }
+  };
+
+  const currentStyle = styles[rank as 1|2|3];
+
+  const CrownSVG = ({ className }: { className?: string }) => (
+    <svg 
+      viewBox="0 0 24 24" 
+      width="22" 
+      height="22" 
+      className={`overflow-visible ${currentStyle.shadow} ${className}`}
+    >
+      <defs>
+        <linearGradient id="gradGold" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fde047" /> 
+          <stop offset="50%" stopColor="#fbbf24" />
+          <stop offset="100%" stopColor="#d97706" />
+        </linearGradient>
+        <linearGradient id="gradSilver" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#f8fafc" />
+          <stop offset="50%" stopColor="#cbd5e1" />
+          <stop offset="100%" stopColor="#64748b" />
+        </linearGradient>
+        <linearGradient id="gradBronze" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#fdba74" />
+          <stop offset="50%" stopColor="#fb923c" />
+          <stop offset="100%" stopColor="#c2410c" />
+        </linearGradient>
+        
+        {/* Shine Gradient */}
+        <linearGradient id="shine" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="transparent" stopOpacity="0" />
+          <stop offset="50%" stopColor="white" stopOpacity="0.8" />
+          <stop offset="100%" stopColor="transparent" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      
+      {/* Crown Shape */}
+      <path 
+        d="M2 4L5 16H19L22 4L15 11L12 4L9 11L2 4Z" 
+        fill={currentStyle.fill} 
+        stroke={currentStyle.stroke} 
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      
+      {/* Animated Shine Overlay using Mask */}
+      <mask id={`mask-${rank}-${category}`}>
+         <path d="M2 4L5 16H19L22 4L15 11L12 4L9 11L2 4Z" fill="white" />
+      </mask>
+      <rect 
+        x="-100%" 
+        y="0" 
+        width="50%" 
+        height="100%" 
+        fill="url(#shine)" 
+        mask={`url(#mask-${rank}-${category})`}
+        style={{ mixBlendMode: 'overlay' }}
+      >
+        <animate attributeName="x" from="-100%" to="200%" dur="2.5s" repeatCount="indefinite" />
+      </rect>
+    </svg>
+  );
+
+  return (
+    <div className="absolute -top-3 -left-2 z-50 flex pointer-events-none">
+       <div className="relative">
+         {/* Double Crown for Multi */}
+         {category === 'multi' && (
+            <div className="absolute -right-2.5 -top-1 transform rotate-12 opacity-90 scale-90 origin-bottom-left">
+              <CrownSVG />
+            </div>
+         )}
+         {/* Main Crown */}
+         <div className="relative z-10">
+           <CrownSVG />
+         </div>
+       </div>
+    </div>
+  );
+};
+
 interface GameItemProps {
   game: Game;
+  index: number;
   onGenerate: (ids: string[], randomize?: boolean) => void;
   onRequestUrlInput: (id: string) => void;
   onUpload: (id: string, file: File) => void;
   onDelete: (ids: string[]) => void;
   onToggleCategory: (id: string) => void;
   onTogglePlatinum: (id: string) => void;
-  viewMode: 'single' | 'dual';
 }
 
 // Sub-component for individual list item to handle drag controls
 const GameItem: React.FC<GameItemProps> = ({ 
   game, 
+  index,
   onGenerate, 
   onRequestUrlInput, 
   onUpload, 
   onDelete, 
   onToggleCategory,
-  onTogglePlatinum,
-  viewMode 
+  onTogglePlatinum
 }) => {
   const dragControls = useDragControls();
 
@@ -83,13 +181,6 @@ const GameItem: React.FC<GameItemProps> = ({
     }
   };
   
-  // Diamond Flow Effect Style
-  const diamondFlowStyle = game.isPlatinum ? {
-    background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)",
-    backgroundSize: "200% 100%",
-    animation: "shine 3s infinite linear"
-  } : {};
-
   return (
     <Reorder.Item
       value={game}
@@ -142,21 +233,26 @@ const GameItem: React.FC<GameItemProps> = ({
           )}
 
           {/* Image Area */}
-          <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 bg-slate-950 rounded-md overflow-hidden border border-slate-700 shadow-inner group/img">
-            {game.isLoadingImage ? (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-            ) : game.imageUrl ? (
-              <img src={game.imageUrl} alt={game.name} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-700">
-                <ImageIcon size={20} />
-              </div>
-            )}
+          <div className="relative w-12 h-12 sm:w-14 sm:h-14 flex-shrink-0 bg-slate-950 rounded-md overflow-visible border border-slate-700 shadow-inner group/img">
+            {/* Rank Badge (Crown) */}
+            <RankCrown rank={index + 1} category={game.category} />
+            
+            <div className="w-full h-full overflow-hidden rounded-md">
+                {game.isLoadingImage ? (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+                    <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                  </div>
+                ) : game.imageUrl ? (
+                  <img src={game.imageUrl} alt={game.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-slate-700 bg-slate-900">
+                    <ImageIcon size={20} />
+                  </div>
+                )}
+            </div>
 
             {/* Image Hover Controls */}
-            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/img:opacity-100 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-0.5 backdrop-blur-[1px] z-30">
+            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/img:opacity-100 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-0.5 backdrop-blur-[1px] z-30 rounded-md">
               <div className="flex gap-1 w-full px-1 h-1/2">
                  <label className="flex-1 cursor-pointer text-white hover:text-indigo-300 bg-slate-700/80 hover:bg-slate-600 rounded-[2px] transition-colors flex items-center justify-center" title="Upload">
                   <Upload size={10} />
@@ -262,22 +358,42 @@ const GameList: React.FC<GameListProps> = ({
   onAddGame,
   onToggleCategory,
   onTogglePlatinum,
-  viewMode,
-  onToggleViewMode,
   onRequestUrlInput
 }) => {
   const [inputName, setInputName] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(-1);
+  const isComposing = useRef(false);
+  const suggestionsListRef = useRef<HTMLDivElement>(null);
 
   // Filtering suggestions
   const suggestions = useMemo(() => {
     if (!inputName.trim()) return [];
     const term = inputName.toLowerCase();
     return POPULAR_GAMES
-      .filter(g => g.toLowerCase().includes(term))
-      .slice(0, 5); // Limit to 5
+      .filter(g => g.toLowerCase().includes(term));
   }, [inputName]);
+
+  // Auto-scroll to selected suggestion
+  useEffect(() => {
+    if (showSuggestions && selectedIndex >= 0 && suggestionsListRef.current) {
+      const listElement = suggestionsListRef.current;
+      const selectedItem = listElement.children[selectedIndex] as HTMLElement;
+      
+      if (selectedItem) {
+        const itemTop = selectedItem.offsetTop;
+        const itemBottom = itemTop + selectedItem.offsetHeight;
+        const containerTop = listElement.scrollTop;
+        const containerBottom = containerTop + listElement.clientHeight;
+
+        if (itemTop < containerTop) {
+          listElement.scrollTop = itemTop;
+        } else if (itemBottom > containerBottom) {
+          listElement.scrollTop = itemBottom - listElement.clientHeight;
+        }
+      }
+    }
+  }, [selectedIndex, showSuggestions]);
 
   const handleAdd = () => {
     if (inputName.trim()) {
@@ -296,12 +412,21 @@ const GameList: React.FC<GameListProps> = ({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
+        // Prevent add if IME composition is active (User pressing enter to confirm Chinese characters)
+        if (isComposing.current || e.nativeEvent.isComposing) {
+            return;
+        }
+
         e.preventDefault();
+        
+        // If a suggestion is selected via Arrow keys, add it DIRECTLY to list
         if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
-            setInputName(suggestions[selectedIndex]);
+            onAddGame(suggestions[selectedIndex], 'single');
+            setInputName('');
             setShowSuggestions(false);
             setSelectedIndex(-1);
         } else {
+            // Otherwise add whatever is typed
             handleAdd();
         }
     } else if (e.key === 'ArrowDown') {
@@ -314,8 +439,6 @@ const GameList: React.FC<GameListProps> = ({
     } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         if (!showSuggestions) {
-             // If suggestions not shown but text exists, maybe show them? 
-             // Or just ignore. Here we assume suggestions are open.
              return;
         }
         setSelectedIndex(prev => {
@@ -336,15 +459,6 @@ const GameList: React.FC<GameListProps> = ({
           {title}
           <span className="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full border border-slate-700">{games.length}</span>
         </h3>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={onToggleViewMode}
-            className="p-1.5 text-slate-500 hover:text-indigo-400 transition-colors rounded-md hover:bg-slate-800"
-            title={viewMode === 'single' ? "Switch to Dual Column" : "Switch to Single Column"}
-          >
-            {viewMode === 'single' ? <LayoutGrid size={16} /> : <List size={16} />}
-          </button>
-        </div>
       </div>
 
       {/* Add Game Input */}
@@ -359,6 +473,8 @@ const GameList: React.FC<GameListProps> = ({
                 setShowSuggestions(true);
                 setSelectedIndex(-1);
               }}
+              onCompositionStart={() => { isComposing.current = true; }}
+              onCompositionEnd={() => { isComposing.current = false; }}
               onKeyDown={handleKeyDown}
               onFocus={() => setShowSuggestions(true)}
               onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
@@ -369,6 +485,7 @@ const GameList: React.FC<GameListProps> = ({
             <AnimatePresence>
                 {showSuggestions && suggestions.length > 0 && (
                 <motion.div 
+                    ref={suggestionsListRef}
                     initial={{ opacity: 0, y: -5 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -5 }}
@@ -410,12 +527,13 @@ const GameList: React.FC<GameListProps> = ({
           axis="y"
           values={games}
           onReorder={onUpdateGames}
-          className={`grid gap-2 ${viewMode === 'dual' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}
+          className="flex flex-col gap-2"
         >
           <AnimatePresence mode='popLayout'>
-            {games.map((game) => (
+            {games.map((game, index) => (
               <GameItem
                 key={game.id}
+                index={index}
                 game={game}
                 onGenerate={onGenerate}
                 onRequestUrlInput={onRequestUrlInput}
@@ -423,7 +541,6 @@ const GameList: React.FC<GameListProps> = ({
                 onDelete={onDelete}
                 onToggleCategory={onToggleCategory}
                 onTogglePlatinum={onTogglePlatinum}
-                viewMode={viewMode}
               />
             ))}
           </AnimatePresence>
