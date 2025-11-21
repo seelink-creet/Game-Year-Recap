@@ -4,13 +4,15 @@ let aiClient: GoogleGenAI | null = null;
 
 const getAIClient = () => {
   if (!aiClient) {
+    // According to guidelines, strictly use process.env.API_KEY.
+    // This variable is polyfilled in vite.config.ts
     const apiKey = process.env.API_KEY;
     
     // Debugging: Log key status (do not log the full key)
     if (apiKey) {
       console.log(`[Gemini Service] API Key found: ${apiKey.substring(0, 4)}...`);
     } else {
-      console.error("[Gemini Service] API_KEY is missing in process.env");
+      console.error("[Gemini Service] API_KEY is missing. Please set API_KEY in your environment variables.");
     }
 
     if (!apiKey) {

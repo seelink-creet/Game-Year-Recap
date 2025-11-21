@@ -1,8 +1,8 @@
-
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Reorder, AnimatePresence, motion } from 'framer-motion';
 import { Game, PlatformType } from '../types';
-import { Crown, Trash2, Image as ImageIcon, GripVertical, Upload, Plus, User, Users, Gamepad2 } from 'lucide-react';
+import { Crown, Trash2, Image as ImageIcon, GripVertical, Upload, Plus, User, Users, Gamepad2, Search, ImageDown } from 'lucide-react';
+import { POPULAR_GAMES } from '../data/gameDatabase';
 
 interface GameListProps {
   platform: PlatformType;
@@ -55,6 +55,8 @@ interface SubListProps {
   toggleSelect: (id: string) => void;
   onUpload: (id: string, file: File) => void;
   isEditMode: boolean;
+  suggestions: string[];
+  onSelectSuggestion: (name: string) => void;
 }
 
 const SubList: React.FC<SubListProps> = ({ 
@@ -66,8 +68,33 @@ const SubList: React.FC<SubListProps> = ({
   onReorder, 
   toggleSelect, 
   onUpload, 
-  isEditMode 
+  isEditMode,
+  suggestions,
+  onSelectSuggestion
 }) => {
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Hide suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [wrapperRef]);
+
+  useEffect(() => {
+    // Show suggestions only if there is input and matches
+    if (inputValue.trim().length > 0 && suggestions.length > 0) {
+        setShowSuggestions(true);
+    } else {
+        setShowSuggestions(false);
+    }
+  }, [inputValue, suggestions]);
+
   return (
     <div className="flex flex-col gap-2 flex-1 min-w-0">
       <div className="flex items-center gap-2 mb-2 border-b border-slate-700/50 pb-1">
@@ -93,7 +120,7 @@ const SubList: React.FC<SubListProps> = ({
                 exit={{ opacity: 0, scale: 0.9 }}
                 className={`relative flex items-center gap-2 md:gap-3 p-2 rounded-lg bg-slate-800 border border-slate-700 group hover:border-slate-500 transition-all ${game.selected && isEditMode ? 'ring-2 ring-indigo-500 bg-slate-750' : ''}`}
               >
-                {/* Checkbox (Edit Mode Only) - Moved to far left and enlarged */}
+                {/* Checkbox (Edit Mode Only) */}
                 {isEditMode && (
                    <div 
                       className="flex items-center justify-center cursor-pointer p-1 hover:bg-slate-700 rounded"
@@ -112,8 +139,8 @@ const SubList: React.FC<SubListProps> = ({
 
                 {/* Image Area */}
                 <div className="relative w-10 h-10 md:w-14 md:h-14 rounded-md overflow-hidden bg-slate-900 shrink-0 border border-slate-700 shadow-sm group-hover:shadow-indigo-500/20 transition-shadow">
-                  {game.isGenerating ? (
-                     <div className="absolute inset-0 flex items-center justify-center">
+                  {game.isLoadingImage ? (
+                     <div className="absolute inset-0 flex items-center justify-center bg-black/50">
                         <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
                      </div>
                   ) : game.imageUrl ? (
@@ -165,21 +192,52 @@ const SubList: React.FC<SubListProps> = ({
       </Reorder.Group>
 
       {/* Input Area for this list */}
-      <div className="flex gap-2 bg-slate-900/50 p-1.5 rounded-lg border border-slate-800 focus-within:border-indigo-500/50 transition-colors mt-auto">
-        <input
-          type="text"
-          placeholder="Game Name..."
-          className="bg-transparent border-none outline-none text-xs text-white placeholder-slate-600 w-full px-2"
-          value={inputValue}
-          onChange={(e) => onInputChange(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && onAdd()}
-        />
-        <button 
-          onClick={onAdd}
-          className="p-1.5 bg-slate-700 rounded hover:bg-indigo-600 text-slate-300 hover:text-white transition-colors"
-        >
-          <Plus size={14} />
-        </button>
+      <div className="mt-auto relative" ref={wrapperRef}>
+        <div className="flex gap-2 bg-slate-900/50 p-1.5 rounded-lg border border-slate-800 focus-within:border-indigo-500/50 transition-colors">
+          <input
+            type="text"
+            placeholder="Game Name..."
+            className="bg-transparent border-none outline-none text-xs text-white placeholder-slate-600 w-full px-2"
+            value={inputValue}
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && onAdd()}
+            onFocus={() => {
+                if(inputValue.trim().length > 0 && suggestions.length > 0) setShowSuggestions(true);
+            }}
+          />
+          <button 
+            onClick={onAdd}
+            className="p-1.5 bg-slate-700 rounded hover:bg-indigo-600 text-slate-300 hover:text-white transition-colors"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+
+        {/* Autocomplete Dropdown */}
+        <AnimatePresence>
+            {showSuggestions && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute bottom-full left-0 right-0 mb-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl max-h-40 overflow-y-auto z-50"
+                >
+                    {suggestions.map((suggestion, idx) => (
+                        <button
+                            key={idx}
+                            className="w-full text-left px-3 py-2 text-xs text-slate-300 hover:bg-indigo-600 hover:text-white transition-colors flex items-center gap-2"
+                            onClick={() => {
+                                onSelectSuggestion(suggestion);
+                                setShowSuggestions(false);
+                            }}
+                        >
+                            <Search size={10} className="opacity-50" />
+                            {suggestion}
+                        </button>
+                    ))}
+                </motion.div>
+            )}
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -203,6 +261,15 @@ const GameList: React.FC<GameListProps> = ({
   const singleGames = games.filter(g => g.category === 'single');
   const multiGames = games.filter(g => g.category === 'multi');
 
+  // Helper to filter suggestions with smart matching
+  const getSuggestions = (input: string) => {
+      if (!input.trim()) return [];
+      const lowerInput = input.toLowerCase();
+      return POPULAR_GAMES.filter(game => 
+          game.toLowerCase().includes(lowerInput)
+      ).slice(0, 8); // Limit to 8 suggestions
+  };
+
   const handleReorder = (newCategoryOrder: Game[], category: 'single' | 'multi') => {
     const otherGames = games.filter(g => g.category !== category);
     onUpdateGames([...otherGames, ...newCategoryOrder]);
@@ -223,8 +290,8 @@ const GameList: React.FC<GameListProps> = ({
     if (selectedIds.length > 0) onDelete(selectedIds);
   };
 
-  const handleAdd = (category: 'single' | 'multi') => {
-    const val = inputs[category];
+  const handleAdd = (category: 'single' | 'multi', overrideName?: string) => {
+    const val = overrideName || inputs[category];
     if (val.trim()) {
       onAddGame(val, category);
       setInputs(prev => ({ ...prev, [category]: '' }));
@@ -232,7 +299,7 @@ const GameList: React.FC<GameListProps> = ({
   };
 
   return (
-    <div className="bg-slate-800/50 rounded-xl p-4 backdrop-blur-sm border border-slate-700 flex flex-col h-full transition-all duration-300">
+    <div className="bg-slate-800/50 rounded-xl p-4 backdrop-blur-sm border border-slate-700 flex flex-col h-full transition-all duration-300 relative">
       {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-lg md:text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400 truncate">
@@ -246,10 +313,8 @@ const GameList: React.FC<GameListProps> = ({
             title={viewMode === 'single' ? "Switch to Multiplayer View" : "Switch to Single Player View"}
           >
              {viewMode === 'single' ? (
-                // Icon for Single mode (shows 1 gamepad)
                 <Gamepad2 size={16} />
              ) : (
-                // Icon for Dual mode (shows 2 gamepads)
                 <div className="flex items-center">
                   <Gamepad2 size={16} />
                   <Gamepad2 size={16} className="-ml-1.5 opacity-80" />
@@ -280,7 +345,7 @@ const GameList: React.FC<GameListProps> = ({
               onClick={handleGenerateSelected}
               className="flex items-center gap-1 text-xs bg-emerald-900/50 text-emerald-400 px-3 py-2 rounded hover:bg-emerald-900 border border-emerald-800 transition flex-1 justify-center whitespace-nowrap"
             >
-              <ImageIcon size={14} /> Gen Art
+              <ImageDown size={14} /> Search Cover
             </button>
             <button 
               onClick={handleDeleteSelected}
@@ -304,6 +369,8 @@ const GameList: React.FC<GameListProps> = ({
           toggleSelect={toggleSelect}
           onUpload={onUpload}
           isEditMode={isEditMode}
+          suggestions={getSuggestions(inputs.single)}
+          onSelectSuggestion={(name) => handleAdd('single', name)}
         />
         
         {viewMode === 'dual' && (
@@ -317,6 +384,8 @@ const GameList: React.FC<GameListProps> = ({
             toggleSelect={toggleSelect}
             onUpload={onUpload}
             isEditMode={isEditMode}
+            suggestions={getSuggestions(inputs.multi)}
+            onSelectSuggestion={(name) => handleAdd('multi', name)}
           />
         )}
       </div>

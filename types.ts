@@ -11,10 +11,10 @@ export interface Game {
   id: string;
   name: string;
   platform: PlatformType;
-  category: 'single' | 'multi'; // New field for classification
+  category: 'single' | 'multi';
   imageUrl?: string;
-  isGenerating?: boolean;
-  selected?: boolean; // For batch operations
+  isLoadingImage?: boolean; // Renamed from isGenerating
+  selected?: boolean;
 }
 
 export interface PlatformConfig {

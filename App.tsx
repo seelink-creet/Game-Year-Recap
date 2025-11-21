@@ -1,7 +1,6 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { PlatformType, Game } from './types';
-import { generateGameImage } from './services/geminiService';
+import { searchGameImage } from './services/imageService';
 import Banner from './components/Banner';
 import GameList from './components/GameList';
 import CustomCursor from './components/CustomCursor';
@@ -90,12 +89,12 @@ function App() {
 
     setGames(prev => [...prev, newGame]);
     
-    // Auto generate icon on add
-    handleGenerate([newGame.id], name.trim());
+    // Auto search icon on add
+    handleSearchImages([newGame.id], name.trim());
   };
 
-  const handleGenerate = useCallback(async (gameIds: string[], overrideName?: string) => {
-    setGames(prev => prev.map(g => gameIds.includes(g.id) ? { ...g, isGenerating: true } : g));
+  const handleSearchImages = useCallback(async (gameIds: string[], overrideName?: string) => {
+    setGames(prev => prev.map(g => gameIds.includes(g.id) ? { ...g, isLoadingImage: true } : g));
 
     for (const id of gameIds) {
       setGames(currentGames => {
@@ -104,11 +103,11 @@ function App() {
         
         const nameToUse = overrideName || game.name;
         
-        // Fire and forget the async generation
-        generateGameImage(nameToUse).then(imageUrl => {
-            setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, imageUrl: imageUrl || undefined, isGenerating: false } : g));
+        // Fire and forget the async search
+        searchGameImage(nameToUse).then(imageUrl => {
+            setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, imageUrl: imageUrl || undefined, isLoadingImage: false } : g));
         }).catch(() => {
-            setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, isGenerating: false } : g));
+            setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, isLoadingImage: false } : g));
         });
 
         return currentGames;
@@ -289,7 +288,7 @@ function App() {
                   platform={platform.id}
                   games={platformGames}
                   onUpdateGames={(updated) => updateGamesForPlatform(platform.id, updated)}
-                  onGenerate={handleGenerate}
+                  onGenerate={handleSearchImages}
                   onDelete={handleDelete}
                   onUpload={handleUpload}
                   onAddGame={(name, category) => handleAddGame(name, category, platform.id)}
@@ -303,7 +302,7 @@ function App() {
       </main>
       
       <footer className="text-center text-slate-600 py-8 text-xs relative z-10">
-        <p>Powered by Gemini 2.5 Flash</p>
+        <p>Game data provided by CheapShark & Custom Library</p>
       </footer>
     </div>
   );
