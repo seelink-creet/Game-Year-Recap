@@ -4,7 +4,8 @@ export enum PlatformType {
   PS5 = 'PS5',
   SWITCH = 'Switch 1/2',
   XBOX = 'Xbox',
-  STEAM = 'Steam'
+  STEAM = 'Steam',
+  PC = 'PC'
 }
 
 export interface Game {
@@ -15,6 +16,7 @@ export interface Game {
   imageUrl?: string;
   isLoadingImage?: boolean; // Renamed from isGenerating
   selected?: boolean;
+  isPlatinum?: boolean; // New property for PS5 platinum status
 }
 
 export interface PlatformConfig {

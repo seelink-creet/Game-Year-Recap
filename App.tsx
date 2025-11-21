@@ -1,10 +1,11 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { PlatformType, Game } from './types';
 import { searchGameImage } from './services/imageService';
 import Banner from './components/Banner';
 import GameList from './components/GameList';
 import CustomCursor from './components/CustomCursor';
-import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Save } from 'lucide-react';
+import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Laptop, Link as LinkIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const PLATFORMS = [
@@ -12,6 +13,7 @@ const PLATFORMS = [
   { id: PlatformType.SWITCH, label: 'Switch 1/2', icon: <Disc className="w-5 h-5" />, color: 'from-red-500 to-red-700' },
   { id: PlatformType.XBOX, label: 'Xbox', icon: <Tv className="w-5 h-5" />, color: 'from-green-600 to-green-800' },
   { id: PlatformType.STEAM, label: 'Steam', icon: <Monitor className="w-5 h-5" />, color: 'from-slate-600 to-slate-800' },
+  { id: PlatformType.PC, label: '其他平台', icon: <Laptop className="w-5 h-5" />, color: 'from-purple-600 to-indigo-800' },
 ];
 
 function App() {
@@ -41,7 +43,19 @@ function App() {
   });
 
   const [showSettings, setShowSettings] = useState(false);
+  const [cursorPlatform, setCursorPlatform] = useState<PlatformType | null>(null);
+  
+  // URL Input Dialog State
+  const [urlDialog, setUrlDialog] = useState<{open: boolean, gameId: string | null}>({open: false, gameId: null});
+  const [tempUrl, setTempUrl] = useState('');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Ref to keep track of games for async operations without stale closures
+  const gamesRef = useRef(games);
+  useEffect(() => {
+    gamesRef.current = games;
+  }, [games]);
 
   // Persistence Effects
   useEffect(() => {
@@ -76,6 +90,54 @@ function App() {
     }));
   };
 
+  const handleSearchImages = useCallback(async (gameIds: string[], overrideName?: string, overridePlatform?: PlatformType, randomize: boolean = false) => {
+    // Set loading state first
+    setGames(prev => prev.map(g => gameIds.includes(g.id) ? { ...g, isLoadingImage: true } : g));
+
+    for (const id of gameIds) {
+      // Read current state from Ref
+      const currentGame = gamesRef.current.find(g => g.id === id);
+      
+      // Critical Fix: If we have an overrideName (new game), we proceed even if game isn't in Ref yet.
+      // If we don't have overrideName and game isn't in Ref, we skip and reset loading.
+      const nameToSearch = overrideName || currentGame?.name;
+      
+      if (!nameToSearch) {
+        setGames(prev => prev.map(g => g.id === id ? { ...g, isLoadingImage: false } : g));
+        continue;
+      }
+
+      const previousImage = currentGame?.imageUrl;
+      const platformToSearch = overridePlatform || currentGame?.platform;
+
+      try {
+          // Fire async search
+          const newUrl = await searchGameImage(nameToSearch, platformToSearch, randomize);
+          
+          setGames(finalGames => finalGames.map(g => {
+              if (g.id !== id) return g;
+              
+              // Logic: If newUrl is found, use it.
+              // If newUrl is null (not found), KEEP the old one (previousImage).
+              return { 
+                  ...g, 
+                  imageUrl: newUrl || previousImage, 
+                  isLoadingImage: false 
+              };
+          }));
+      } catch (e) {
+          console.error("Search failed for", nameToSearch, e);
+          // On error, revert loading state and keep previous image
+          setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, isLoadingImage: false } : g));
+      }
+    }
+  }, []);
+
+  // Adapter for GameList to match its expected signature (ids, randomize)
+  const handleGameListGenerate = useCallback((ids: string[], randomize?: boolean) => {
+    handleSearchImages(ids, undefined, undefined, randomize);
+  }, [handleSearchImages]);
+
   const handleAddGame = (name: string, category: 'single' | 'multi', platform: PlatformType) => {
     if (!name || !name.trim()) return;
 
@@ -84,36 +146,16 @@ function App() {
       name: name.trim(),
       platform: platform,
       category: category,
-      selected: false
+      selected: false,
+      isPlatinum: false
     };
 
     setGames(prev => [...prev, newGame]);
     
-    // Auto search icon on add
-    handleSearchImages([newGame.id], name.trim());
+    // Auto search icon on add, pass name directly so we don't rely on stale state
+    // Pass platform explicitly since newGame isn't in Ref yet
+    handleSearchImages([newGame.id], name.trim(), platform, false);
   };
-
-  const handleSearchImages = useCallback(async (gameIds: string[], overrideName?: string) => {
-    setGames(prev => prev.map(g => gameIds.includes(g.id) ? { ...g, isLoadingImage: true } : g));
-
-    for (const id of gameIds) {
-      setGames(currentGames => {
-        const game = currentGames.find(g => g.id === id);
-        if (!game) return currentGames;
-        
-        const nameToUse = overrideName || game.name;
-        
-        // Fire and forget the async search
-        searchGameImage(nameToUse).then(imageUrl => {
-            setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, imageUrl: imageUrl || undefined, isLoadingImage: false } : g));
-        }).catch(() => {
-            setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, isLoadingImage: false } : g));
-        });
-
-        return currentGames;
-      });
-    }
-  }, []);
 
   const handleUpload = (gameId: string, file: File) => {
     const reader = new FileReader();
@@ -122,6 +164,22 @@ function App() {
       setGames(prev => prev.map(g => g.id === gameId ? { ...g, imageUrl: result } : g));
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleUpdateGameImage = (gameId: string, url: string) => {
+    setGames(prev => prev.map(g => g.id === gameId ? { ...g, imageUrl: url } : g));
+  };
+  
+  const handleRequestUrlInput = (gameId: string) => {
+      setTempUrl('');
+      setUrlDialog({open: true, gameId});
+  };
+  
+  const handleSubmitUrl = () => {
+      if (urlDialog.gameId && tempUrl.trim()) {
+          handleUpdateGameImage(urlDialog.gameId, tempUrl.trim());
+      }
+      setUrlDialog({open: false, gameId: null});
   };
 
   const handleDelete = (gameIds: string[]) => {
@@ -190,7 +248,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 pb-20 selection:bg-indigo-500 selection:text-white relative">
-      <CustomCursor />
+      <CustomCursor platform={cursorPlatform} />
       
       {/* Settings Menu */}
       <div className="fixed top-4 right-4 z-50">
@@ -239,6 +297,40 @@ function App() {
           </AnimatePresence>
         </div>
       </div>
+      
+      {/* URL Input Modal */}
+      <AnimatePresence>
+        {urlDialog.open && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+                <motion.div 
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                    onClick={() => setUrlDialog({...urlDialog, open: false})}
+                />
+                <motion.div 
+                    initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                    className="bg-slate-800 border border-slate-700 p-6 rounded-xl shadow-2xl w-full max-w-md relative z-10"
+                >
+                    <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                        <LinkIcon size={20} /> 输入图片链接 (Input Image URL)
+                    </h3>
+                    <input 
+                        autoFocus
+                        type="text" 
+                        value={tempUrl}
+                        onChange={e => setTempUrl(e.target.value)}
+                        placeholder="https://example.com/image.jpg"
+                        className="w-full bg-slate-900 border border-slate-700 rounded p-3 text-white focus:ring-2 focus:ring-indigo-500 outline-none mb-6 text-sm font-mono"
+                        onKeyDown={e => e.key === 'Enter' && handleSubmitUrl()}
+                    />
+                    <div className="flex justify-end gap-3">
+                        <button onClick={() => setUrlDialog({...urlDialog, open: false})} className="px-4 py-2 text-slate-400 hover:text-white transition-colors">取消 Cancel</button>
+                        <button onClick={handleSubmitUrl} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-indigo-500/20">确认 Confirm</button>
+                    </div>
+                </motion.div>
+            </div>
+        )}
+      </AnimatePresence>
 
       {/* Pass games to banner for dynamic quotes */}
       <Banner games={games} />
@@ -251,6 +343,7 @@ function App() {
             <button
               key={platform.id}
               onClick={() => togglePlatform(platform.id)}
+              onMouseEnter={() => setCursorPlatform(platform.id)}
               className={`
                 group relative flex items-center gap-3 px-6 py-3 rounded-full border transition-all duration-300
                 ${selectedPlatforms.includes(platform.id) 
@@ -286,14 +379,16 @@ function App() {
               >
                 <GameList 
                   platform={platform.id}
+                  title={platform.label}
                   games={platformGames}
                   onUpdateGames={(updated) => updateGamesForPlatform(platform.id, updated)}
-                  onGenerate={handleSearchImages}
+                  onGenerate={handleGameListGenerate}
                   onDelete={handleDelete}
                   onUpload={handleUpload}
                   onAddGame={(name, category) => handleAddGame(name, category, platform.id)}
                   viewMode={isDual ? 'dual' : 'single'}
                   onToggleViewMode={() => handleToggleViewMode(platform.id)}
+                  onRequestUrlInput={handleRequestUrlInput}
                 />
               </motion.div>
             );
@@ -302,7 +397,7 @@ function App() {
       </main>
       
       <footer className="text-center text-slate-600 py-8 text-xs relative z-10">
-        <p>Game data provided by CheapShark & Custom Library</p>
+        <p>Game data provided by CheapShark, Wikipedia, Libretro, & Custom Library</p>
       </footer>
     </div>
   );
