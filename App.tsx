@@ -90,6 +90,18 @@ function App() {
     }));
   };
 
+  const handleToggleCategory = (gameId: string) => {
+    setGames(prev => prev.map(g => 
+      g.id === gameId ? { ...g, category: g.category === 'single' ? 'multi' : 'single' } : g
+    ));
+  };
+
+  const handleTogglePlatinum = (gameId: string) => {
+    setGames(prev => prev.map(g => 
+      g.id === gameId ? { ...g, isPlatinum: !g.isPlatinum } : g
+    ));
+  };
+
   const handleSearchImages = useCallback(async (gameIds: string[], overrideName?: string, overridePlatform?: PlatformType, randomize: boolean = false) => {
     // Set loading state first
     setGames(prev => prev.map(g => gameIds.includes(g.id) ? { ...g, isLoadingImage: true } : g));
@@ -386,6 +398,8 @@ function App() {
                   onDelete={handleDelete}
                   onUpload={handleUpload}
                   onAddGame={(name, category) => handleAddGame(name, category, platform.id)}
+                  onToggleCategory={handleToggleCategory}
+                  onTogglePlatinum={handleTogglePlatinum}
                   viewMode={isDual ? 'dual' : 'single'}
                   onToggleViewMode={() => handleToggleViewMode(platform.id)}
                   onRequestUrlInput={handleRequestUrlInput}
