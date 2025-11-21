@@ -1,12 +1,12 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { PlatformType, Game } from './types';
 import { generateGameImage } from './services/geminiService';
 import Banner from './components/Banner';
 import GameList from './components/GameList';
 import CustomCursor from './components/CustomCursor';
-import { Gamepad2, Monitor, Tv, Disc } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Save } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const PLATFORMS = [
   { id: PlatformType.PS5, label: 'PS5', icon: <Gamepad2 className="w-5 h-5" />, color: 'from-blue-600 to-blue-800' },
@@ -16,10 +16,52 @@ const PLATFORMS = [
 ];
 
 function App() {
-  const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformType[]>([PlatformType.PS5, PlatformType.STEAM]);
-  const [games, setGames] = useState<Game[]>([]);
-  const [viewModes, setViewModes] = useState<Record<string, 'single' | 'dual'>>({});
-  
+  // Initialize from LocalStorage or Default
+  const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformType[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('gyr_platforms');
+      return saved ? JSON.parse(saved) : [PlatformType.PS5, PlatformType.STEAM];
+    }
+    return [PlatformType.PS5, PlatformType.STEAM];
+  });
+
+  const [games, setGames] = useState<Game[]>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('gyr_games');
+      return saved ? JSON.parse(saved) : [];
+    }
+    return [];
+  });
+
+  const [viewModes, setViewModes] = useState<Record<string, 'single' | 'dual'>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('gyr_viewmodes');
+      return saved ? JSON.parse(saved) : {};
+    }
+    return {};
+  });
+
+  const [showSettings, setShowSettings] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Persistence Effects
+  useEffect(() => {
+    localStorage.setItem('gyr_platforms', JSON.stringify(selectedPlatforms));
+  }, [selectedPlatforms]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gyr_games', JSON.stringify(games));
+    } catch (e) {
+      console.warn("Local Storage quota exceeded. Some images might not be saved.", e);
+    }
+  }, [games]);
+
+  useEffect(() => {
+    localStorage.setItem('gyr_viewmodes', JSON.stringify(viewModes));
+  }, [viewModes]);
+
+  // Handlers
   const togglePlatform = (platform: PlatformType) => {
     setSelectedPlatforms(prev => 
       prev.includes(platform) 
@@ -94,9 +136,111 @@ function App() {
     });
   };
 
+  // Data Management
+  const exportData = () => {
+    const data = {
+      version: 1,
+      date: new Date().toISOString(),
+      selectedPlatforms,
+      games,
+      viewModes
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `game-year-recap-${new Date().getFullYear()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setShowSettings(false);
+  };
+
+  const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+        if (json.selectedPlatforms) setSelectedPlatforms(json.selectedPlatforms);
+        if (json.games) setGames(json.games);
+        if (json.viewModes) setViewModes(json.viewModes);
+        alert("Data loaded successfully!");
+      } catch (err) {
+        console.error(err);
+        alert("Failed to parse data file. Please ensure it is a valid JSON backup.");
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      setShowSettings(false);
+    };
+    reader.readAsText(file);
+  };
+
+  const clearData = () => {
+    if (confirm("Are you sure you want to clear all data? This action cannot be undone.")) {
+      setGames([]);
+      setSelectedPlatforms([PlatformType.PS5, PlatformType.STEAM]);
+      setViewModes({});
+      localStorage.clear();
+      setShowSettings(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-950 pb-20 selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 pb-20 selection:bg-indigo-500 selection:text-white relative">
       <CustomCursor />
+      
+      {/* Settings Menu */}
+      <div className="fixed top-4 right-4 z-50">
+        <div className="relative">
+          <button 
+            onClick={() => setShowSettings(!showSettings)}
+            className={`p-3 rounded-full transition-all duration-300 shadow-lg backdrop-blur-md border ${showSettings ? 'bg-indigo-600 border-indigo-500 text-white rotate-90' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'}`}
+            title="Data Settings"
+          >
+            <Settings size={20} />
+          </button>
+
+          <AnimatePresence>
+            {showSettings && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: -10, x: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0, x: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: -10, x: 10 }}
+                className="absolute top-14 right-0 w-48 bg-slate-800 rounded-xl shadow-xl border border-slate-700 overflow-hidden flex flex-col"
+              >
+                <button onClick={exportData} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left">
+                  <Download size={16} />
+                  <span>Export Backup</span>
+                </button>
+                
+                <label className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left cursor-pointer">
+                  <Upload size={16} />
+                  <span>Import Backup</span>
+                  <input 
+                    ref={fileInputRef}
+                    type="file" 
+                    accept=".json" 
+                    className="hidden" 
+                    onChange={importData} 
+                  />
+                </label>
+                
+                <div className="h-px bg-slate-700 my-1"></div>
+                
+                <button onClick={clearData} className="flex items-center gap-3 px-4 py-3 hover:bg-red-900/30 text-red-400 hover:text-red-300 transition-colors text-sm text-left">
+                  <Trash2 size={16} />
+                  <span>Clear All Data</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+
       {/* Pass games to banner for dynamic quotes */}
       <Banner games={games} />
 
