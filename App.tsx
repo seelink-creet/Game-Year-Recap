@@ -5,7 +5,10 @@ import { searchGameImage } from './services/imageService';
 import Banner from './components/Banner';
 import GameList from './components/GameList';
 import CustomCursor from './components/CustomCursor';
-import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Laptop, Link as LinkIcon, AlertTriangle, Swords } from 'lucide-react';
+import ShareModal from './components/ShareModal';
+import AuthModal from './components/AuthModal';
+import CommunitySidebar from './components/CommunitySidebar';
+import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Laptop, Link as LinkIcon, AlertTriangle, Swords, Share2, UserCircle, LogOut, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const PLATFORMS = [
@@ -18,10 +21,16 @@ const PLATFORMS = [
 ];
 
 function App() {
+  const [currentUser, setCurrentUser] = useState<string | null>(() => {
+    return localStorage.getItem('gyr_current_user');
+  });
+
+  const getStorageKey = (key: string) => currentUser ? `${key}_${currentUser}` : key;
+
   // Initialize from LocalStorage or Default
   const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformType[]>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('gyr_platforms');
+      const saved = localStorage.getItem(getStorageKey('gyr_platforms'));
       return saved ? JSON.parse(saved) : [PlatformType.PS5, PlatformType.STEAM];
     }
     return [PlatformType.PS5, PlatformType.STEAM];
@@ -29,14 +38,35 @@ function App() {
 
   const [games, setGames] = useState<Game[]>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('gyr_games');
+      const saved = localStorage.getItem(getStorageKey('gyr_games'));
       return saved ? JSON.parse(saved) : [];
     }
     return [];
   });
 
+  // Reload data when user changes
+  useEffect(() => {
+    const loadedPlatforms = localStorage.getItem(getStorageKey('gyr_platforms'));
+    const loadedGames = localStorage.getItem(getStorageKey('gyr_games'));
+    
+    setSelectedPlatforms(loadedPlatforms ? JSON.parse(loadedPlatforms) : [PlatformType.PS5, PlatformType.STEAM]);
+    setGames(loadedGames ? JSON.parse(loadedGames) : []);
+    
+    // Persist current user
+    if (currentUser) {
+      localStorage.setItem('gyr_current_user', currentUser);
+    } else {
+      localStorage.removeItem('gyr_current_user');
+    }
+  }, [currentUser]);
+
   const [showSettings, setShowSettings] = useState(false);
   const [cursorPlatform, setCursorPlatform] = useState<PlatformType | null>(null);
+  
+  // Modals State
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'change_password'>('login');
   
   // URL Input Dialog State
   const [urlDialog, setUrlDialog] = useState<{open: boolean, gameId: string | null}>({open: false, gameId: null});
@@ -44,6 +74,9 @@ function App() {
   
   // Clear Data Confirmation Dialog State
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  // Trigger for sidebar refresh
+  const [dataRefreshTrigger, setDataRefreshTrigger] = useState(0);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -55,18 +88,34 @@ function App() {
 
   // Persistence Effects
   useEffect(() => {
-    localStorage.setItem('gyr_platforms', JSON.stringify(selectedPlatforms));
-  }, [selectedPlatforms]);
+    localStorage.setItem(getStorageKey('gyr_platforms'), JSON.stringify(selectedPlatforms));
+  }, [selectedPlatforms, currentUser]);
 
   useEffect(() => {
     try {
-      localStorage.setItem('gyr_games', JSON.stringify(games));
+      localStorage.setItem(getStorageKey('gyr_games'), JSON.stringify(games));
+      // Increment trigger to notify community sidebar of changes (if current user adds games)
+      setDataRefreshTrigger(prev => prev + 1);
     } catch (e) {
       console.warn("Local Storage quota exceeded. Some images might not be saved.", e);
     }
-  }, [games]);
+  }, [games, currentUser]);
 
   // Handlers
+  const handleAuthOpen = (mode: 'login' | 'register' | 'change_password' = 'login') => {
+    setAuthMode(mode);
+    setIsAuthOpen(true);
+    setShowSettings(false);
+  };
+
+  const handleLogin = (username: string) => {
+    setCurrentUser(username);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+  };
+
   const togglePlatform = (platform: PlatformType) => {
     setSelectedPlatforms(prev => 
       prev.includes(platform) 
@@ -88,15 +137,10 @@ function App() {
   };
 
   const handleSearchImages = useCallback(async (gameIds: string[], overrideName?: string, overridePlatform?: PlatformType, randomize: boolean = false) => {
-    // Set loading state first
     setGames(prev => prev.map(g => gameIds.includes(g.id) ? { ...g, isLoadingImage: true } : g));
 
     for (const id of gameIds) {
-      // Read current state from Ref
       const currentGame = gamesRef.current.find(g => g.id === id);
-      
-      // Critical Fix: If we have an overrideName (new game), we proceed even if game isn't in Ref yet.
-      // If we don't have overrideName and game isn't in Ref, we skip and reset loading.
       const nameToSearch = overrideName || currentGame?.name;
       
       if (!nameToSearch) {
@@ -108,14 +152,10 @@ function App() {
       const platformToSearch = overridePlatform || currentGame?.platform;
 
       try {
-          // Fire async search
           const newUrl = await searchGameImage(nameToSearch, platformToSearch, randomize);
           
           setGames(finalGames => finalGames.map(g => {
               if (g.id !== id) return g;
-              
-              // Logic: If newUrl is found, use it.
-              // If newUrl is null (not found), KEEP the old one (previousImage).
               return { 
                   ...g, 
                   imageUrl: newUrl || previousImage, 
@@ -124,13 +164,11 @@ function App() {
           }));
       } catch (e) {
           console.error("Search failed for", nameToSearch, e);
-          // On error, revert loading state and keep previous image
           setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, isLoadingImage: false } : g));
       }
     }
   }, []);
 
-  // Adapter for GameList to match its expected signature (ids, randomize)
   const handleGameListGenerate = useCallback((ids: string[], randomize?: boolean) => {
     handleSearchImages(ids, undefined, undefined, randomize);
   }, [handleSearchImages]);
@@ -148,9 +186,6 @@ function App() {
     };
 
     setGames(prev => [...prev, newGame]);
-    
-    // Auto search icon on add, pass name directly so we don't rely on stale state
-    // Pass platform explicitly since newGame isn't in Ref yet
     handleSearchImages([newGame.id], name.trim(), platform, false);
   };
 
@@ -190,11 +225,11 @@ function App() {
     });
   };
 
-  // Data Management
   const exportData = () => {
     const data = {
       version: 1,
       date: new Date().toISOString(),
+      user: currentUser || 'guest',
       selectedPlatforms,
       games
     };
@@ -202,7 +237,7 @@ function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `game-year-recap-${new Date().getFullYear()}.json`;
+    link.download = `game-recap-${currentUser || 'guest'}-${new Date().getFullYear()}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -238,7 +273,7 @@ function App() {
 
   const handleConfirmClear = () => {
     setGames([]);
-    localStorage.removeItem('gyr_games'); 
+    localStorage.removeItem(getStorageKey('gyr_games')); 
     setShowClearConfirm(false);
   };
 
@@ -246,12 +281,42 @@ function App() {
     <div className="min-h-screen bg-slate-950 pb-20 selection:bg-indigo-500 selection:text-white relative">
       <CustomCursor platform={cursorPlatform} />
       
-      {/* Settings Menu */}
-      <div className="fixed top-4 right-4 z-50">
+      {/* Settings & Header Menu */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+        {/* User Profile */}
+        <button 
+          onClick={() => currentUser ? handleLogout() : handleAuthOpen('login')}
+          className={`px-3 py-2 rounded-full transition-all duration-300 shadow-lg backdrop-blur-md border flex items-center gap-2 ${currentUser ? 'bg-indigo-900/80 border-indigo-500 text-indigo-100' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'}`}
+          title={currentUser ? "Log Out" : "Login / Register"}
+        >
+          {currentUser ? (
+              <>
+                 <UserCircle size={18} />
+                 <span className="text-xs font-bold max-w-[80px] truncate">{currentUser}</span>
+                 <LogOut size={14} className="ml-1 opacity-50" />
+              </>
+          ) : (
+              <>
+                 <UserCircle size={18} />
+                 <span className="text-xs font-bold hidden md:inline">Login</span>
+              </>
+          )}
+        </button>
+
+        {/* Share Button */}
+        <button 
+          onClick={() => setIsShareOpen(true)}
+          className="p-3 rounded-full transition-all duration-300 shadow-lg backdrop-blur-md border bg-gradient-to-br from-indigo-600 to-purple-600 border-transparent text-white hover:scale-105"
+          title="Share My Recap"
+        >
+          <Share2 size={20} />
+        </button>
+
+        {/* Settings Dropdown */}
         <div className="relative">
           <button 
             onClick={() => setShowSettings(!showSettings)}
-            className={`p-3 rounded-full transition-all duration-300 shadow-lg backdrop-blur-md border ${showSettings ? 'bg-indigo-600 border-indigo-500 text-white rotate-90' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'}`}
+            className={`p-3 rounded-full transition-all duration-300 shadow-lg backdrop-blur-md border ${showSettings ? 'bg-slate-700 border-slate-500 text-white rotate-90' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'}`}
             title="Data Settings"
           >
             <Settings size={20} />
@@ -282,6 +347,16 @@ function App() {
                   />
                 </label>
                 
+                {currentUser && (
+                    <button 
+                      onClick={() => handleAuthOpen('change_password')}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left w-full"
+                    >
+                      <Lock size={16} />
+                      <span>Change Password</span>
+                    </button>
+                )}
+
                 <div className="h-px bg-slate-700 my-1"></div>
                 
                 <button 
@@ -297,6 +372,22 @@ function App() {
         </div>
       </div>
       
+      {/* Modals */}
+      <ShareModal 
+        isOpen={isShareOpen} 
+        onClose={() => setIsShareOpen(false)} 
+        games={games} 
+        year={new Date().getFullYear()} 
+      />
+
+      <AuthModal 
+        isOpen={isAuthOpen} 
+        onClose={() => setIsAuthOpen(false)} 
+        onLogin={handleLogin}
+        currentUser={currentUser}
+        initialView={authMode}
+      />
+
       {/* URL Input Modal */}
       <AnimatePresence>
         {urlDialog.open && (
@@ -363,63 +454,73 @@ function App() {
       {/* Pass games to banner for dynamic quotes */}
       <Banner games={games} />
 
-      <main className="container mx-auto px-4 md:px-8 -mt-8 relative z-20">
-        
-        {/* Platform Selector */}
-        <div className="flex flex-wrap gap-4 justify-center mb-12">
-          {PLATFORMS.map((platform) => (
-            <button
-              key={platform.id}
-              onClick={() => togglePlatform(platform.id)}
-              onMouseEnter={() => setCursorPlatform(platform.id)}
-              className={`
-                group relative flex items-center gap-3 px-6 py-3 rounded-full border transition-all duration-300
-                ${selectedPlatforms.includes(platform.id) 
-                  ? `bg-gradient-to-br ${platform.color} border-transparent shadow-lg shadow-indigo-500/20` 
-                  : 'bg-slate-900/80 border-slate-700 hover:border-slate-500 text-slate-400'}
-              `}
-            >
-              <span className={`${selectedPlatforms.includes(platform.id) ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>
-                {platform.icon}
-              </span>
-              <span className={`font-medium ${selectedPlatforms.includes(platform.id) ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>
-                {platform.label}
-              </span>
-              {selectedPlatforms.includes(platform.id) && (
-                 <span className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full animate-ping" />
-              )}
-            </button>
-          ))}
-        </div>
+      <main className="container mx-auto px-4 md:px-8 -mt-8 relative z-20 pb-12">
+        <div className="flex flex-col lg:flex-row gap-8 items-start">
+          
+          {/* Left Column: Game Management */}
+          <div className="flex-1 w-full min-w-0">
+             {/* Platform Selector */}
+            <div className="flex flex-wrap gap-4 justify-center lg:justify-start mb-12">
+              {PLATFORMS.map((platform) => (
+                <button
+                  key={platform.id}
+                  onClick={() => togglePlatform(platform.id)}
+                  onMouseEnter={() => setCursorPlatform(platform.id)}
+                  className={`
+                    group relative flex items-center gap-3 px-6 py-3 rounded-full border transition-all duration-300
+                    ${selectedPlatforms.includes(platform.id) 
+                      ? `bg-gradient-to-br ${platform.color} border-transparent shadow-lg shadow-indigo-500/20` 
+                      : 'bg-slate-900/80 border-slate-700 hover:border-slate-500 text-slate-400'}
+                  `}
+                >
+                  <span className={`${selectedPlatforms.includes(platform.id) ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>
+                    {platform.icon}
+                  </span>
+                  <span className={`font-medium ${selectedPlatforms.includes(platform.id) ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'}`}>
+                    {platform.label}
+                  </span>
+                  {selectedPlatforms.includes(platform.id) && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-white rounded-full animate-ping" />
+                  )}
+                </button>
+              ))}
+            </div>
 
-        {/* Game Lists Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
-          {PLATFORMS.filter(p => selectedPlatforms.includes(p.id)).map(platform => {
-            const platformGames = games.filter(g => g.platform === platform.id);
-            
-            return (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                key={platform.id} 
-                className="flex flex-col gap-4 col-span-1"
-              >
-                <GameList 
-                  platform={platform.id}
-                  title={platform.label}
-                  games={platformGames}
-                  onUpdateGames={(updated) => updateGamesForPlatform(platform.id, updated)}
-                  onGenerate={handleGameListGenerate}
-                  onDelete={handleDelete}
-                  onUpload={handleUpload}
-                  onAddGame={(name, category) => handleAddGame(name, category, platform.id)}
-                  onToggleCategory={handleToggleCategory}
-                  onTogglePlatinum={handleTogglePlatinum}
-                  onRequestUrlInput={handleRequestUrlInput}
-                />
-              </motion.div>
-            );
-          })}
+            {/* Game Lists Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
+              {PLATFORMS.filter(p => selectedPlatforms.includes(p.id)).map(platform => {
+                const platformGames = games.filter(g => g.platform === platform.id);
+                
+                return (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    key={platform.id} 
+                    className="flex flex-col gap-4 col-span-1"
+                  >
+                    <GameList 
+                      platform={platform.id}
+                      title={platform.label}
+                      games={platformGames}
+                      onUpdateGames={(updated) => updateGamesForPlatform(platform.id, updated)}
+                      onGenerate={handleGameListGenerate}
+                      onDelete={handleDelete}
+                      onUpload={handleUpload}
+                      onAddGame={(name, category) => handleAddGame(name, category, platform.id)}
+                      onToggleCategory={handleToggleCategory}
+                      onTogglePlatinum={handleTogglePlatinum}
+                      onRequestUrlInput={handleRequestUrlInput}
+                    />
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right Column: Community Sidebar */}
+          <aside className="w-full lg:w-72 xl:w-80 flex-shrink-0 mt-8 lg:mt-0">
+             <CommunitySidebar currentUser={currentUser} refreshTrigger={dataRefreshTrigger} />
+          </aside>
         </div>
       </main>
       

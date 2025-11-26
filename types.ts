@@ -26,3 +26,11 @@ export interface PlatformConfig {
   color: string;
   icon: React.ReactNode;
 }
+
+export interface User {
+  username: string;
+  email?: string;
+  password?: string;
+  games: Game[];
+  platforms: PlatformType[];
+}
