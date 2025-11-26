@@ -1,14 +1,16 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { PlatformType, Game } from './types';
 import { searchGameImage } from './services/imageService';
+import { authService, UserProfile } from './services/authService';
+import { gameService } from './services/gameService';
+import { isSupabaseConfigured } from './lib/supabase';
 import Banner from './components/Banner';
 import GameList from './components/GameList';
 import CustomCursor from './components/CustomCursor';
 import ShareModal from './components/ShareModal';
 import AuthModal from './components/AuthModal';
 import CommunitySidebar from './components/CommunitySidebar';
-import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Laptop, Link as LinkIcon, AlertTriangle, Swords, Share2, UserCircle, LogOut, Lock } from 'lucide-react';
+import { Gamepad2, Monitor, Tv, Disc, Settings, Download, Upload, Trash2, Laptop, Link as LinkIcon, AlertTriangle, Swords, Share2, UserCircle, LogOut, Lock, Database } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const PLATFORMS = [
@@ -21,44 +23,49 @@ const PLATFORMS = [
 ];
 
 function App() {
-  const [currentUser, setCurrentUser] = useState<string | null>(() => {
-    return localStorage.getItem('gyr_current_user');
-  });
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isDbConfigured, setIsDbConfigured] = useState(true);
 
-  const getStorageKey = (key: string) => currentUser ? `${key}_${currentUser}` : key;
-
-  // Initialize from LocalStorage or Default
+  // Initialize from LocalStorage (Only for Platforms preference, not data)
   const [selectedPlatforms, setSelectedPlatforms] = useState<PlatformType[]>(() => {
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(getStorageKey('gyr_platforms'));
+      const saved = localStorage.getItem('gyr_platforms_pref');
       return saved ? JSON.parse(saved) : [PlatformType.PS5, PlatformType.STEAM];
     }
     return [PlatformType.PS5, PlatformType.STEAM];
   });
 
-  const [games, setGames] = useState<Game[]>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(getStorageKey('gyr_games'));
-      return saved ? JSON.parse(saved) : [];
-    }
-    return [];
-  });
+  const [games, setGames] = useState<Game[]>([]);
+  const [isLoadingData, setIsLoadingData] = useState(false);
 
-  // Reload data when user changes
+  // Check DB Config
   useEffect(() => {
-    const loadedPlatforms = localStorage.getItem(getStorageKey('gyr_platforms'));
-    const loadedGames = localStorage.getItem(getStorageKey('gyr_games'));
-    
-    setSelectedPlatforms(loadedPlatforms ? JSON.parse(loadedPlatforms) : [PlatformType.PS5, PlatformType.STEAM]);
-    setGames(loadedGames ? JSON.parse(loadedGames) : []);
-    
-    // Persist current user
-    if (currentUser) {
-      localStorage.setItem('gyr_current_user', currentUser);
-    } else {
-      localStorage.removeItem('gyr_current_user');
-    }
-  }, [currentUser]);
+    setIsDbConfigured(isSupabaseConfigured());
+  }, []);
+
+  // Check Session on Mount
+  useEffect(() => {
+    const checkUser = async () => {
+        const user = await authService.getCurrentUser();
+        setUserProfile(user);
+    };
+    if (isDbConfigured) checkUser();
+  }, [isDbConfigured]);
+
+  // Load Games when User Changes
+  useEffect(() => {
+    const loadGames = async () => {
+        if (userProfile) {
+            setIsLoadingData(true);
+            const userGames = await gameService.fetchUserGames(userProfile.id);
+            setGames(userGames);
+            setIsLoadingData(false);
+        } else {
+            setGames([]); // Clear games on logout
+        }
+    };
+    if (isDbConfigured) loadGames();
+  }, [userProfile, isDbConfigured]);
 
   const [showSettings, setShowSettings] = useState(false);
   const [cursorPlatform, setCursorPlatform] = useState<PlatformType | null>(null);
@@ -86,20 +93,10 @@ function App() {
     gamesRef.current = games;
   }, [games]);
 
-  // Persistence Effects
+  // Persistence for UI preferences only
   useEffect(() => {
-    localStorage.setItem(getStorageKey('gyr_platforms'), JSON.stringify(selectedPlatforms));
-  }, [selectedPlatforms, currentUser]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(getStorageKey('gyr_games'), JSON.stringify(games));
-      // Increment trigger to notify community sidebar of changes (if current user adds games)
-      setDataRefreshTrigger(prev => prev + 1);
-    } catch (e) {
-      console.warn("Local Storage quota exceeded. Some images might not be saved.", e);
-    }
-  }, [games, currentUser]);
+    localStorage.setItem('gyr_platforms_pref', JSON.stringify(selectedPlatforms));
+  }, [selectedPlatforms]);
 
   // Handlers
   const handleAuthOpen = (mode: 'login' | 'register' | 'change_password' = 'login') => {
@@ -108,12 +105,15 @@ function App() {
     setShowSettings(false);
   };
 
-  const handleLogin = (username: string) => {
-    setCurrentUser(username);
+  const handleLoginSuccess = async (username: string) => {
+    // Re-fetch profile to ensure we have ID
+    const user = await authService.getCurrentUser();
+    setUserProfile(user);
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
+  const handleLogout = async () => {
+    await authService.logout();
+    setUserProfile(null);
   };
 
   const togglePlatform = (platform: PlatformType) => {
@@ -124,16 +124,38 @@ function App() {
     );
   };
 
-  const handleToggleCategory = (gameId: string) => {
+  // --- CRUD Operations Wrapper ---
+
+  const handleToggleCategory = async (gameId: string) => {
+    // Optimistic Update
     setGames(prev => prev.map(g => 
       g.id === gameId ? { ...g, category: g.category === 'single' ? 'multi' : 'single' } : g
     ));
+
+    // DB Update
+    if (userProfile) {
+        const game = gamesRef.current.find(g => g.id === gameId);
+        if (game) {
+            const newCat = game.category === 'single' ? 'multi' : 'single';
+            await gameService.updateGame(gameId, { category: newCat });
+            setDataRefreshTrigger(p => p + 1);
+        }
+    }
   };
 
-  const handleTogglePlatinum = (gameId: string) => {
+  const handleTogglePlatinum = async (gameId: string) => {
+    // Optimistic Update
     setGames(prev => prev.map(g => 
       g.id === gameId ? { ...g, isPlatinum: !g.isPlatinum } : g
     ));
+
+    // DB Update
+    if (userProfile) {
+        const game = gamesRef.current.find(g => g.id === gameId);
+        if (game) {
+            await gameService.updateGame(gameId, { isPlatinum: !game.isPlatinum });
+        }
+    }
   };
 
   const handleSearchImages = useCallback(async (gameIds: string[], overrideName?: string, overridePlatform?: PlatformType, randomize: boolean = false) => {
@@ -162,44 +184,81 @@ function App() {
                   isLoadingImage: false 
               };
           }));
+
+          // DB Update if successful and logged in
+          if (userProfile && newUrl) {
+              await gameService.updateGame(id, { imageUrl: newUrl });
+          }
+
       } catch (e) {
           console.error("Search failed for", nameToSearch, e);
           setGames(finalGames => finalGames.map(g => g.id === id ? { ...g, isLoadingImage: false } : g));
       }
     }
-  }, []);
+  }, [userProfile]); // Add userProfile dependency
 
   const handleGameListGenerate = useCallback((ids: string[], randomize?: boolean) => {
     handleSearchImages(ids, undefined, undefined, randomize);
   }, [handleSearchImages]);
 
-  const handleAddGame = (name: string, category: 'single' | 'multi', platform: PlatformType) => {
+  const handleAddGame = async (name: string, category: 'single' | 'multi', platform: PlatformType) => {
     if (!name || !name.trim()) return;
 
+    if (!userProfile) {
+        alert("Please login to add games!");
+        handleAuthOpen('login');
+        return;
+    }
+
+    // Generate a UUID-like ID for immediate UI feedback
+    const tempId = crypto.randomUUID();
+
     const newGame: Game = {
-      id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+      id: tempId,
       name: name.trim(),
       platform: platform,
       category: category,
       selected: false,
-      isPlatinum: false
+      isPlatinum: false,
+      isLoadingImage: true // Start loading immediately
     };
 
+    // Optimistic Add
     setGames(prev => [...prev, newGame]);
-    handleSearchImages([newGame.id], name.trim(), platform, false);
+
+    // DB Add
+    const success = await gameService.addGame(userProfile.id, newGame);
+    if (success) {
+        setDataRefreshTrigger(p => p + 1);
+        // Trigger Image Search
+        handleSearchImages([newGame.id], name.trim(), platform, false);
+    } else {
+        // Revert on failure
+        setGames(prev => prev.filter(g => g.id !== tempId));
+        alert("Failed to save game to database.");
+    }
   };
 
-  const handleUpload = (gameId: string, file: File) => {
+  const handleUpload = async (gameId: string, file: File) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const result = e.target?.result as string;
       setGames(prev => prev.map(g => g.id === gameId ? { ...g, imageUrl: result } : g));
+      
+      // DB Update
+      if (userProfile) {
+          await gameService.updateGame(gameId, { imageUrl: result });
+      }
     };
     reader.readAsDataURL(file);
   };
 
-  const handleUpdateGameImage = (gameId: string, url: string) => {
+  const handleUpdateGameImage = async (gameId: string, url: string) => {
     setGames(prev => prev.map(g => g.id === gameId ? { ...g, imageUrl: url } : g));
+     // DB Update
+     if (userProfile) {
+        await gameService.updateGame(gameId, { imageUrl: url });
+    }
   };
   
   const handleRequestUrlInput = (gameId: string) => {
@@ -214,30 +273,39 @@ function App() {
       setUrlDialog({open: false, gameId: null});
   };
 
-  const handleDelete = (gameIds: string[]) => {
+  const handleDelete = async (gameIds: string[]) => {
+    // Optimistic Delete
     setGames(prev => prev.filter(g => !gameIds.includes(g.id)));
+    
+    // DB Delete
+    if (userProfile) {
+        const success = await gameService.deleteGames(gameIds);
+        if (success) setDataRefreshTrigger(p => p + 1);
+    }
   };
 
   const updateGamesForPlatform = (platform: PlatformType, updatedPlatformGames: Game[]) => {
+    // Reordering logic only affects UI list order temporarily unless we add an 'order' field to DB
+    // For now, we update local state
     setGames(prev => {
       const otherGames = prev.filter(g => g.platform !== platform);
       return [...otherGames, ...updatedPlatformGames];
     });
   };
 
+  // Export/Import still useful for backup
   const exportData = () => {
     const data = {
       version: 1,
       date: new Date().toISOString(),
-      user: currentUser || 'guest',
-      selectedPlatforms,
+      user: userProfile?.username || 'guest',
       games
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `game-recap-${currentUser || 'guest'}-${new Date().getFullYear()}.json`;
+    link.download = `game-recap-${userProfile?.username || 'guest'}-${new Date().getFullYear()}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -245,35 +313,19 @@ function App() {
     setShowSettings(false);
   };
 
-  const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = JSON.parse(event.target?.result as string);
-        if (json.selectedPlatforms) setSelectedPlatforms(json.selectedPlatforms);
-        if (json.games) setGames(json.games);
-        alert("Data loaded successfully!");
-      } catch (err) {
-        console.error(err);
-        alert("Failed to parse data file. Please ensure it is a valid JSON backup.");
-      }
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      setShowSettings(false);
-    };
-    reader.readAsText(file);
-  };
-
   const clearData = () => {
     setShowSettings(false);
     setShowClearConfirm(true);
   };
 
-  const handleConfirmClear = () => {
-    setGames([]);
-    localStorage.removeItem(getStorageKey('gyr_games')); 
+  const handleConfirmClear = async () => {
+    if (userProfile) {
+        const success = await gameService.clearAllGames(userProfile.id);
+        if (success) {
+            setGames([]);
+            setDataRefreshTrigger(p => p + 1);
+        }
+    }
     setShowClearConfirm(false);
   };
 
@@ -285,20 +337,20 @@ function App() {
       <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
         {/* User Profile */}
         <button 
-          onClick={() => currentUser ? handleLogout() : handleAuthOpen('login')}
-          className={`px-3 py-2 rounded-full transition-all duration-300 shadow-lg backdrop-blur-md border flex items-center gap-2 ${currentUser ? 'bg-indigo-900/80 border-indigo-500 text-indigo-100' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'}`}
-          title={currentUser ? "Log Out" : "Login / Register"}
+          onClick={() => userProfile ? handleLogout() : handleAuthOpen('login')}
+          className={`px-3 py-2 rounded-full transition-all duration-300 shadow-lg backdrop-blur-md border flex items-center gap-2 ${userProfile ? 'bg-indigo-900/80 border-indigo-500 text-indigo-100' : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-white'}`}
+          title={userProfile ? "Log Out" : "Login / Register"}
         >
-          {currentUser ? (
+          {userProfile ? (
               <>
                  <UserCircle size={18} />
-                 <span className="text-xs font-bold max-w-[80px] truncate">{currentUser}</span>
+                 <span className="text-xs font-bold max-w-[80px] truncate">{userProfile.username}</span>
                  <LogOut size={14} className="ml-1 opacity-50" />
               </>
           ) : (
               <>
                  <UserCircle size={18} />
-                 <span className="text-xs font-bold hidden md:inline">Login</span>
+                 <span className="text-xs font-bold hidden md:inline">Login / Register</span>
               </>
           )}
         </button>
@@ -335,19 +387,7 @@ function App() {
                   <span>Export Backup</span>
                 </button>
                 
-                <label className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left cursor-pointer w-full">
-                  <Upload size={16} />
-                  <span>Import Backup</span>
-                  <input 
-                    ref={fileInputRef}
-                    type="file" 
-                    accept=".json" 
-                    className="hidden" 
-                    onChange={importData} 
-                  />
-                </label>
-                
-                {currentUser && (
+                {userProfile && (
                     <button 
                       onClick={() => handleAuthOpen('change_password')}
                       className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors text-sm text-left w-full"
@@ -364,7 +404,7 @@ function App() {
                   className="flex items-center gap-3 px-4 py-3 hover:bg-red-900/30 text-red-400 hover:text-red-300 transition-colors text-sm text-left w-full"
                 >
                   <Trash2 size={16} />
-                  <span>Clear All Data</span>
+                  <span>Clear All Games</span>
                 </button>
               </motion.div>
             )}
@@ -372,6 +412,13 @@ function App() {
         </div>
       </div>
       
+      {/* Database Warning Banner */}
+      {!isDbConfigured && (
+          <div className="fixed top-0 left-0 right-0 z-[100] bg-red-600/90 text-white text-xs py-1 px-4 text-center font-bold backdrop-blur">
+             DATABASE NOT CONFIGURED: Please edit lib/supabase.ts with your credentials.
+          </div>
+      )}
+
       {/* Modals */}
       <ShareModal 
         isOpen={isShareOpen} 
@@ -383,8 +430,8 @@ function App() {
       <AuthModal 
         isOpen={isAuthOpen} 
         onClose={() => setIsAuthOpen(false)} 
-        onLogin={handleLogin}
-        currentUser={currentUser}
+        onLogin={handleLoginSuccess}
+        currentUser={userProfile?.username}
         initialView={authMode}
       />
 
@@ -488,7 +535,24 @@ function App() {
 
             {/* Game Lists Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6 items-start">
-              {PLATFORMS.filter(p => selectedPlatforms.includes(p.id)).map(platform => {
+              {/* Not Logged In Empty State */}
+              {!userProfile && !isLoadingData && (
+                   <div className="col-span-full text-center py-20 bg-slate-900/30 rounded-xl border border-slate-800 border-dashed">
+                      <Database size={48} className="mx-auto text-slate-600 mb-4" />
+                      <h3 className="text-xl font-bold text-white mb-2">Login to Manage Your Collection</h3>
+                      <p className="text-slate-400 mb-6 max-w-md mx-auto">
+                        Connect to the cloud database to save your games across devices and share with the community.
+                      </p>
+                      <button 
+                         onClick={() => handleAuthOpen('login')}
+                         className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full font-bold shadow-lg shadow-indigo-500/30 transition-all active:scale-95"
+                      >
+                         Login / Register
+                      </button>
+                   </div>
+              )}
+
+              {userProfile && PLATFORMS.filter(p => selectedPlatforms.includes(p.id)).map(platform => {
                 const platformGames = games.filter(g => g.platform === platform.id);
                 
                 return (
@@ -519,7 +583,7 @@ function App() {
 
           {/* Right Column: Community Sidebar */}
           <aside className="w-full lg:w-72 xl:w-80 flex-shrink-0 mt-8 lg:mt-0">
-             <CommunitySidebar currentUser={currentUser} refreshTrigger={dataRefreshTrigger} />
+             <CommunitySidebar currentUser={userProfile?.username || null} currentUserId={userProfile?.id} refreshTrigger={dataRefreshTrigger} />
           </aside>
         </div>
       </main>

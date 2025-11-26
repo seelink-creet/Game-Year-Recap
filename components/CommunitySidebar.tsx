@@ -1,21 +1,28 @@
-
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Users, Gamepad2, Trophy, Flame } from 'lucide-react';
-import { authService, CommunityGameStat } from '../services/authService';
+import { Sparkles, Users, Flame } from 'lucide-react';
+import { CommunityGameStat } from '../services/authService'; // keeping type import
+import { gameService } from '../services/gameService';
 
 interface CommunitySidebarProps {
   currentUser: string | null;
-  refreshTrigger: number; // Prop to force refresh when local data changes
+  currentUserId?: string; // Add ID prop
+  refreshTrigger: number;
 }
 
-const CommunitySidebar: React.FC<CommunitySidebarProps> = ({ currentUser, refreshTrigger }) => {
+const CommunitySidebar: React.FC<CommunitySidebarProps> = ({ currentUser, currentUserId, refreshTrigger }) => {
   const [stats, setStats] = useState<CommunityGameStat[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const data = authService.getCommunityStats();
-    setStats(data);
-  }, [currentUser, refreshTrigger]);
+    const fetchData = async () => {
+        setLoading(true);
+        const data = await gameService.getCommunityStats(currentUserId);
+        setStats(data);
+        setLoading(false);
+    };
+    fetchData();
+  }, [currentUser, currentUserId, refreshTrigger]);
 
   return (
     <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden backdrop-blur-sm shadow-xl flex flex-col h-full max-h-[calc(100vh-120px)] sticky top-24">
@@ -27,10 +34,12 @@ const CommunitySidebar: React.FC<CommunitySidebarProps> = ({ currentUser, refres
 
       {/* List */}
       <div className="flex-1 overflow-y-auto p-3 custom-scrollbar space-y-3">
-        {stats.length === 0 ? (
+        {loading ? (
+             <div className="text-center py-8 text-slate-500 text-xs animate-pulse">Loading stats...</div>
+        ) : stats.length === 0 ? (
           <div className="text-center py-8 px-4 text-slate-500 text-xs">
             <p>暂无社区数据</p>
-            <p className="mt-2">注册并保存你的游戏列表，即可在此显示！</p>
+            <p className="mt-2">配置好数据库后，大家的数据将显示在这里！</p>
           </div>
         ) : (
           stats.map((game, index) => (

@@ -44,14 +44,18 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, current
     setSuccess(null);
     setIsLoading(true);
 
-    // Simulate network delay for realism
-    await new Promise(r => setTimeout(r, 800));
-
     try {
       if (mode === 'login') {
-        const res = authService.login(username, password);
-        if (res.success) {
-          onLogin(username);
+        // For Supabase, we log in with Email (or username if we implement lookup logic)
+        // Here we assume username field might be email
+        const loginId = email || username; 
+        // Small fix: UI shows "Username" field but Supabase expects Email by default.
+        // If you want username login, you need a server function to lookup email.
+        // For this demo, let's treat the "Username" field as "Email/Username" input.
+        
+        const res = await authService.login(loginId, password);
+        if (res.success && res.user) {
+          onLogin(res.user.username);
           onClose();
         } else {
           setError(res.message);
@@ -63,23 +67,24 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, current
            setIsLoading(false);
            return;
         }
-        const res = authService.register(username, email, password);
+        const res = await authService.register(username, email, password);
         if (res.success) {
-          setSuccess("Account created! Logging you in...");
+          setSuccess("Account created! Please check your email to verify (if enabled) or Login.");
+          // Auto switch to login after short delay if confirmed
           setTimeout(() => {
-            onLogin(username);
-            onClose();
-          }, 1000);
+             setMode('login');
+             setSuccess(null);
+             // Pre-fill
+             setUsername(email);
+          }, 2000);
         } else {
           setError(res.message);
         }
       }
       else if (mode === 'forgot') {
-        const res = authService.resetPasswordRequest(email);
+        const res = await authService.resetPasswordRequest(email);
         if (res.success) {
-          // Since this is a demo without backend email, we show the password in alert or UI for user to see
-          // In a real app, this would say "Check your email"
-          setSuccess(`Recovery success! (Demo: Your password is "${res.recoveredPassword}")`);
+          setSuccess(res.message);
         } else {
           setError(res.message);
         }
@@ -90,12 +95,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, current
             setIsLoading(false);
             return;
         }
-        if (password === newPassword) {
-            setError("New password cannot be the same as old password.");
-            setIsLoading(false);
-            return;
-        }
-        const res = authService.changePassword(currentUser, password, newPassword);
+        const res = await authService.changePassword(newPassword);
         if (res.success) {
            setSuccess("Password updated successfully.");
            setTimeout(() => onClose(), 1500);
@@ -103,8 +103,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, current
            setError(res.message);
         }
       }
-    } catch (err) {
-      setError("An unexpected error occurred.");
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred.");
     } finally {
       setIsLoading(false);
     }
@@ -171,24 +171,23 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, current
 
         <form onSubmit={handleSubmit} className="space-y-3">
             
-            {/* Username Field - Hidden in Forgot mode */}
-            {mode !== 'forgot' && (
-                <div className="relative">
+            {/* Username/Email Field for Login/Register */}
+            {mode === 'register' && (
+                 <div className="relative">
                     <User size={16} className="absolute left-3 top-3.5 text-slate-500" />
                     <input 
                         type="text" 
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
-                        placeholder="Username"
-                        className={`w-full bg-slate-900 border ${mode === 'change_password' ? 'border-slate-700 bg-slate-900/50 text-slate-500 cursor-not-allowed' : 'border-slate-700'} rounded-lg pl-10 pr-3 py-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all`}
-                        disabled={mode === 'change_password' || isLoading}
-                        autoFocus={mode === 'login' || mode === 'register'}
+                        placeholder="Username (Display Name)"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-3 py-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                        disabled={isLoading}
                     />
                 </div>
             )}
 
-            {/* Email Field - Only for Register and Forgot */}
-            {(mode === 'register' || mode === 'forgot') && (
+            {/* Email Field - Used for Login, Register and Forgot */}
+            {mode !== 'change_password' && (
                 <div className="relative">
                     <Mail size={16} className="absolute left-3 top-3.5 text-slate-500" />
                     <input 
@@ -198,20 +197,20 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onLogin, current
                         placeholder="Email Address"
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-3 py-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                         disabled={isLoading}
-                        autoFocus={mode === 'forgot'}
+                        autoFocus={mode === 'login' || mode === 'forgot'}
                     />
                 </div>
             )}
 
-            {/* Password Field - Main */}
-            {mode !== 'forgot' && (
+            {/* Password Field */}
+            {(mode === 'login' || mode === 'register') && (
                 <div className="relative">
                     <Lock size={16} className="absolute left-3 top-3.5 text-slate-500" />
                     <input 
                         type="password" 
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder={mode === 'change_password' ? "Current Password" : "Password"}
+                        placeholder="Password"
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-3 py-3 text-sm text-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                         disabled={isLoading}
                     />

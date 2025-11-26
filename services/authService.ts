@@ -1,20 +1,11 @@
+import { supabase } from '../lib/supabase';
+import { PlatformType } from '../types';
 
-import { User, PlatformType, Game } from '../types';
-
-const USERS_STORAGE_KEY = 'gyr_users_db';
-const GAMES_STORAGE_PREFIX = 'gyr_games_';
-
-// Helper to get all users
-const getUsersDB = (): Record<string, User> => {
-  if (typeof window === 'undefined') return {};
-  const data = localStorage.getItem(USERS_STORAGE_KEY);
-  return data ? JSON.parse(data) : {};
-};
-
-// Helper to save DB
-const saveUsersDB = (db: Record<string, User>) => {
-  localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(db));
-};
+export interface UserProfile {
+  id: string;
+  username: string;
+  email?: string;
+}
 
 export interface CommunityGameStat {
   name: string;
@@ -24,111 +15,102 @@ export interface CommunityGameStat {
 }
 
 export const authService = {
-  register: (username: string, email: string, password: string): { success: boolean; message: string } => {
-    const db = getUsersDB();
-    
-    if (db[username]) {
-      return { success: false, message: 'Username already exists' };
+  // Sign Up with Supabase
+  register: async (username: string, email: string, password: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      // 1. Sign up auth user
+      const { data, error } = await (supabase.auth as any).signUp({
+        email,
+        password,
+      });
+
+      if (error) return { success: false, message: error.message };
+      if (!data.user) return { success: false, message: 'Registration failed.' };
+
+      // 2. Create profile entry (username)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert([{ id: data.user.id, username: username }]);
+
+      if (profileError) {
+        // Warning: User created but profile failed. 
+        console.error('Profile creation error:', profileError);
+        return { success: true, message: 'Account created, but username failed to save.' };
+      }
+
+      return { success: true, message: 'Registration successful! You can now login.' };
+    } catch (e: any) {
+      return { success: false, message: e.message || 'Unknown error' };
     }
-
-    // Check if email is used
-    const emailExists = Object.values(db).some(u => u.email === email);
-    if (emailExists) {
-      return { success: false, message: 'Email already registered' };
-    }
-
-    // Create new user
-    db[username] = {
-      username,
-      email,
-      password, // In a real app, hash this!
-      games: [],
-      platforms: []
-    };
-
-    saveUsersDB(db);
-    return { success: true, message: 'Registration successful' };
   },
 
-  login: (username: string, password: string): { success: boolean; message: string } => {
-    const db = getUsersDB();
-    const user = db[username];
+  // Login with Supabase
+  login: async (usernameOrEmail: string, password: string): Promise<{ success: boolean; message: string; user?: UserProfile }> => {
+    try {
+      // Supabase uses Email for login by default
+      // If user entered a plain username, this demo assumes they entered an email. 
+      // Real implementation might need to lookup email by username first, but that requires extra permissions.
+      // For simplicity, we assume the input is Email.
+      
+      const { data, error } = await (supabase.auth as any).signInWithPassword({
+        email: usernameOrEmail,
+        password,
+      });
 
-    if (!user) {
-      return { success: false, message: 'User not found' };
+      if (error) return { success: false, message: error.message };
+      if (!data.user) return { success: false, message: 'Login failed' };
+
+      // Fetch Profile for Username
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('id', data.user.id)
+        .single();
+
+      const userProfile: UserProfile = {
+        id: data.user.id,
+        email: data.user.email,
+        username: profile?.username || usernameOrEmail.split('@')[0], // Fallback if no profile
+      };
+
+      return { success: true, message: 'Login successful', user: userProfile };
+    } catch (e: any) {
+      return { success: false, message: e.message };
     }
-
-    if (user.password !== password) {
-      return { success: false, message: 'Invalid password' };
-    }
-
-    return { success: true, message: 'Login successful' };
   },
 
-  resetPasswordRequest: (email: string): { success: boolean; message: string; recoveredPassword?: string } => {
-    const db = getUsersDB();
-    const user = Object.values(db).find(u => u.email === email);
-
-    if (!user) {
-      return { success: false, message: 'Email not found in our records' };
-    }
-
-    // In a real app, send an email. Here, we simulate by "alerting" or returning the password for demo purposes.
-    // For the sake of this local tool, we will return success.
-    return { success: true, message: 'If this email is registered, we have sent a recovery link.', recoveredPassword: user.password }; 
+  logout: async () => {
+    await (supabase.auth as any).signOut();
   },
 
-  changePassword: (username: string, oldPassword: string, newPassword: string): { success: boolean; message: string } => {
-    const db = getUsersDB();
-    const user = db[username];
+  resetPasswordRequest: async (email: string): Promise<{ success: boolean; message: string }> => {
+    const { error } = await (supabase.auth as any).resetPasswordForEmail(email);
+    if (error) return { success: false, message: error.message };
+    return { success: true, message: 'If registered, a password reset email has been sent.' };
+  },
 
-    if (!user) return { success: false, message: 'User error' };
-
-    if (user.password !== oldPassword) {
-      return { success: false, message: 'Current password is incorrect' };
-    }
-
-    user.password = newPassword;
-    saveUsersDB(db);
-    
+  // Update password (must be logged in)
+  changePassword: async (newPassword: string): Promise<{ success: boolean; message: string }> => {
+    const { error } = await (supabase.auth as any).updateUser({ password: newPassword });
+    if (error) return { success: false, message: error.message };
     return { success: true, message: 'Password updated successfully' };
   },
+  
+  // Get current session
+  getCurrentUser: async (): Promise<UserProfile | null> => {
+    const { data: { session } } = await (supabase.auth as any).getSession();
+    if (!session?.user) return null;
 
-  // New function to aggregate community stats
-  getCommunityStats: (): CommunityGameStat[] => {
-    if (typeof window === 'undefined') return [];
-    
-    const db = getUsersDB();
-    const stats: Record<string, { count: number, platforms: Set<PlatformType>, latestPlayer: string }> = {};
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('id', session.user.id)
+        .single();
 
-    Object.keys(db).forEach(username => {
-      // Retrieve games for this user from their specific storage key
-      const userGamesJson = localStorage.getItem(`${GAMES_STORAGE_PREFIX}${username}`);
-      if (userGamesJson) {
-        try {
-          const userGames: Game[] = JSON.parse(userGamesJson);
-          userGames.forEach(game => {
-            if (!stats[game.name]) {
-              stats[game.name] = { count: 0, platforms: new Set(), latestPlayer: username };
-            }
-            stats[game.name].count += 1;
-            stats[game.name].platforms.add(game.platform);
-            // Just keep one player name as a sample
-            if (Math.random() > 0.5) stats[game.name].latestPlayer = username;
-          });
-        } catch (e) {
-          console.warn(`Failed to parse games for user ${username}`);
-        }
-      }
-    });
-
-    return Object.entries(stats)
-      .map(([name, data]) => ({
-        name,
-        count: data.count,
-        platforms: Array.from(data.platforms),
-        latestPlayer: data.latestPlayer
-      }))
-      .sort((a, b) => b.count - a.count);
+    return {
+        id: session.user.id,
+        email: session.user.email,
+        username: profile?.username || session.user.email?.split('@')[0] || 'User'
+    };
   }
 };
